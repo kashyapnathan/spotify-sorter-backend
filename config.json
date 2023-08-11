@@ -1,5 +1,6 @@
 {
     "genius_api_key": "ZVYLTHi_oUrejxgXA0plrDN1Zg_cr4Tza2kPYOW6sah8t8n9q83ZgapMGsc8NUaR",
     "spotify_client_id": "7a39156335994b3aad9c4d57e34c5eea",
-    "spotify_client_secret": "c63edac0946e45c69bcc916dcf58bb94"
+    "spotify_client_secret": "c63edac0946e45c69bcc916dcf58bb94",
+    "app.secret_key": "secret-hehe"
 }
