@@ -8,10 +8,17 @@ from nltk.tokenize import word_tokenize
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import json
-import logging
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})
+
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
+    response.headers['Access-Control-Allow-Methods'] = 'GET,PUT,POST,DELETE,OPTIONS'
+    return response
+
 
 # -------------------- CONFIGURATION --------------------
 with open('config.json', 'r') as f:
@@ -91,6 +98,28 @@ def sort_tracks_camelot(playlists):
         playlist['tracks']['items'].sort(key=lambda x: (x['track']['camelot'][:-1], x['track']['camelot'][-1]))
     return playlists
 
+def get_playlist_data(playlist_id):
+    response = get_app_token()
+    if response.status_code != 200:
+        # Log the error or return an appropriate error response
+        print("Error fetching app token:", response.json())
+        return None
+
+    access_token = response.json['access_token']
+    headers = {"Authorization": f"Bearer {access_token}"}
+    playlist_url = f"https://api.spotify.com/v1/playlists/{playlist_id}"
+    response = requests.get(playlist_url, headers=headers)
+
+    if response.status_code != 200:
+        # Log the error or return an appropriate error response
+        print("Error fetching playlist data from Spotify:", response.json())
+        return None
+
+    playlist_data = response.json()
+    enrich_playlists_with_track_details(playlist_data, headers)
+    return playlist_data
+
+
 # -------------------- ROUTES --------------------
 
 @app.route('/get_app_token')
@@ -108,16 +137,9 @@ def get_app_token():
 
 @app.route('/fetch_playlist/<playlist_id>')
 def fetch_playlist(playlist_id):
-    access_token = get_app_token().json['access_token']  
-    headers = {"Authorization": f"Bearer {access_token}"}
-    playlist_url = f"https://api.spotify.com/v1/playlists/{playlist_id}"
-    response = requests.get(playlist_url, headers=headers)
-
-    if response.status_code != 200:
+    playlist_data = get_playlist_data(playlist_id)
+    if not playlist_data:
         return jsonify({"error": "Failed to fetch playlist"}), 400
-
-    playlist_data = response.json()
-    enrich_playlists_with_track_details(playlist_data, headers)
     return jsonify(playlist_data)
 
 
@@ -125,10 +147,9 @@ def fetch_playlist(playlist_id):
 def playlists():
     access_token = session.get('access_token')
     headers = {'Authorization': f'Bearer {access_token}',}
-    response = requests.get('https://api.spotify.com/v1/me/playlists', headers=headers)
-
+    response = requests.get(f'https://api.spotify.com/v1/audio-features/{track_id}', headers=headers)
     if response.status_code != 200:
-        return jsonify({"error": "Failed to fetch playlists"}), 400
+        return jsonify({"error": f"Failed to fetch data from Spotify. Status code: {response.status_code}"}), 400
 
     playlists_data = response.json()
     enrich_playlists_with_track_details(playlists_data, headers)
@@ -140,18 +161,20 @@ def sort(playlist_id):
     playlist_data = fetch_playlist(playlist_id)
 
     if method == 'bpm':
-        return sort_tracks_by_bpm(playlist_data)
+        return jsonify(sort_tracks_by_bpm(playlist_data))
     elif method == 'camelot':
-        return sort_tracks_camelot(playlist_data)
+        return jsonify(sort_tracks_camelot(playlist_data))
     elif method == 'wordplay':
-        return sort_songs_by_similarity()
+        return jsonify(sort_songs_by_similarity())
     else:
         return {"error": f"Unknown sorting method: {method}"}, 400
-
+    
 @app.route('/export/<playlist_id>', methods=['GET'])
 def export(playlist_id):
     method = request.args.get('method')
-    sorted_playlists = sort(playlist_id)
+    sorted_playlists = get_playlist_data(playlist_id)
+    if not sorted_playlists:
+        return jsonify({"error": "Failed to fetch playlist"}), 400
 
     filename = f"sorted_playlist_{method}.txt"
     with open(filename, 'w') as file:
@@ -162,6 +185,7 @@ def export(playlist_id):
         file.write("\n")
     
     return send_from_directory(directory='.', filename=filename, as_attachment=True)
+
 
 if __name__ == "__main__":
     app.run(debug=True)
