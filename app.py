@@ -12,13 +12,6 @@ import json
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})
 
-@app.after_request
-def add_cors_headers(response):
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
-    response.headers['Access-Control-Allow-Methods'] = 'GET,PUT,POST,DELETE,OPTIONS'
-    return response
-
 
 # -------------------- CONFIGURATION --------------------
 with open('config.json', 'r') as f:
@@ -101,11 +94,10 @@ def sort_tracks_camelot(playlists):
 def get_playlist_data(playlist_id):
     response = get_app_token()
     if response.status_code != 200:
-        # Log the error or return an appropriate error response
-        print("Error fetching app token:", response.json())
-        return None
+        return {"error": f"Error fetching playlist data from Spotify: {response.json()}"}, response.status_code
 
-    access_token = response.json['access_token']
+
+    access_token = session.get('access_token')
     headers = {"Authorization": f"Bearer {access_token}"}
     playlist_url = f"https://api.spotify.com/v1/playlists/{playlist_id}"
     response = requests.get(playlist_url, headers=headers)
@@ -132,6 +124,7 @@ def get_app_token():
     }
     response = requests.post(token_url, data=data)
     token_info = response.json()
+    session['access_token'] = token_info['access_token']
     return jsonify({"access_token": token_info['access_token']})
 
 
@@ -139,8 +132,21 @@ def get_app_token():
 def fetch_playlist(playlist_id):
     playlist_data = get_playlist_data(playlist_id)
     if not playlist_data:
-        return jsonify({"error": "Failed to fetch playlist"}), 400
-    return jsonify(playlist_data)
+        response = jsonify({"error": "Failed to fetch playlist"})
+        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+        return response, 400
+    response = jsonify(playlist_data)
+    response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+    return response
+
+@app.route('/fetch_playlist/<playlist_id>', methods=['OPTIONS'])
+def fetch_playlist_options(playlist_id):
+    response = jsonify({})
+    response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+    response.headers.add('Access-Control-Allow-Methods', 'GET')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+    return response
+
 
 
 @app.route('/playlists')
